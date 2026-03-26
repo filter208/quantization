@@ -1,0 +1,31 @@
+# 1. Python / PyTorch 相关 (模型权重、缓存、数据集等，不要传到云端)
+__pycache__/
+*.py[cod]
+*$py.class
+*.pth
+*.pt
+datasets/
+data/
+.venv/
+venv/
+
+# 2. Scala / sbt 相关 (SpinalHDL 等编译生成的巨大中间文件)
+target/
+project/target/
+.bsp/
+.metals/
+
+# 3. Vivado / EDA 硬件综合相关 (海量的仿真日志、工程缓存和网表)
+*.log
+*.jou
+*.pb
+*.wdb
+*.str
+.Xil/
+*.dir/
+
+# 4. 操作系统或编辑器自动生成的隐藏缓存文件
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
