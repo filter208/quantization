@@ -43,3 +43,19 @@
 ## 📂 核心目录结构
 * `test_gpu.py`：GPU 连通性测试脚本（用于验证 1 号卡隔离状态）。
 * `spinal_test/`：SpinalHDL 初始验证工程，遵循 `src/main/scala` 行业标准目录树，用于存放 MAC 单元等硬件架构的源文件并生成 `.v` 文件。
+
+## [2026-04-02] 新增：基于 Scala/Chisel 的 MAC 单元实战与自动化测试
+
+本次更新在 `hw_env` 服务器环境下，从零搭建了独立的 Chisel 硬件开发目录，完成了乘累加器（MAC）的 RTL 代码生成，并打通了基于 Scala 的敏捷测试工作流。
+
+### 1. 核心操作步骤
+* **标准目录构建**：严格遵守 sbt 项目结构，将依赖配置与源码分离。
+  ```bash
+  mkdir mac_project && cd mac_project
+  mkdir -p src/main/scala  # 存放硬件源码
+  mkdir -p src/test/scala  # 存放测试脚本
+
+sbt run 成功后会生成三个核心文件：
+.fir (FIRRTL)：硬件的中间表示层，剥离了 Scala 语法，仅保留逻辑连线。
+.anno.json：给后续编译链看的元数据/注解“便利贴”。
+.v (Verilog)：最终的底层硬件图纸。
