@@ -7,12 +7,15 @@ circuit MACUnit :
 
     reg accReg : UInt<32>, clock with :
       reset => (reset, UInt<32>("h0")) @[src/main/scala/MACUnit.scala 16:23]
-    when io.clear : @[src/main/scala/MACUnit.scala 19:18]
-      accReg <= UInt<1>("h0") @[src/main/scala/MACUnit.scala 22:12]
+    node _mulResult_T = mul(io.a, io.b) @[src/main/scala/MACUnit.scala 18:32]
+    reg mulResult : UInt, clock with :
+      reset => (UInt<1>("h0"), mulResult) @[src/main/scala/MACUnit.scala 18:26]
+    mulResult <= _mulResult_T @[src/main/scala/MACUnit.scala 18:26]
+    when io.clear : @[src/main/scala/MACUnit.scala 20:18]
+      accReg <= UInt<1>("h0") @[src/main/scala/MACUnit.scala 23:12]
     else :
-      node _accReg_T = mul(io.a, io.b) @[src/main/scala/MACUnit.scala 25:30]
-      node _accReg_T_1 = add(accReg, _accReg_T) @[src/main/scala/MACUnit.scala 25:22]
-      node _accReg_T_2 = tail(_accReg_T_1, 1) @[src/main/scala/MACUnit.scala 25:22]
-      accReg <= _accReg_T_2 @[src/main/scala/MACUnit.scala 25:12]
-    io.out <= accReg @[src/main/scala/MACUnit.scala 29:10]
+      node _accReg_T = add(accReg, mulResult) @[src/main/scala/MACUnit.scala 26:22]
+      node _accReg_T_1 = tail(_accReg_T, 1) @[src/main/scala/MACUnit.scala 26:22]
+      accReg <= _accReg_T_1 @[src/main/scala/MACUnit.scala 26:12]
+    io.out <= accReg @[src/main/scala/MACUnit.scala 30:10]
 

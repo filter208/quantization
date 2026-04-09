@@ -14,7 +14,8 @@ class MACUnit extends Module {
   // val 的意思是声明一个不可变的名字。
   // RegInit 声明了一个有记忆功能的“寄存器”，括号里的 0.U(32.W) 意思是它初始值是 32位宽的 0。
   val accReg = RegInit(0.U(32.W))
-
+  // 增加流水线：先将乘法结果存入寄存器，下一拍再累加，提升时钟频率
+  val mulResult = RegNext(io.a * io.b)
   // when 就像硬件里的多路选择器 (MUX)
   when(io.clear) {
     // := 在这里不是数学里的等于，它是“硬件连线”的意思！
@@ -22,7 +23,7 @@ class MACUnit extends Module {
     accReg := 0.U
   } .otherwise {
     // 否则，把 (当前的寄存器值 + A乘B的结果) 连到寄存器的输入端。
-    accReg := accReg + (io.a * io.b)
+    accReg := accReg + mulResult
   }
 
   // 最后，把寄存器里的值，连一根线到芯片的输出引脚上
