@@ -93,3 +93,12 @@ class MatrixEngine extends Module {
     }
   }
 }
+
+// 只有顶层模块需要这个“启动器”
+object MatrixEngineMain extends App {
+  // 这行指令会触发编译器：
+  // 1. 检查 MatrixEngine 的逻辑
+  // 2. 自动深入 Buffer.scala 和 MACUnit.scala 提取逻辑
+  // 3. 将全套逻辑翻译成一个完整的 MatrixEngine.v
+  (new chisel3.stage.ChiselStage).emitVerilog(new MatrixEngine())
+}

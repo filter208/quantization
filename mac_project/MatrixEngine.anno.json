@@ -1,0 +1,22 @@
+[
+  {
+    "class":"firrtl.transforms.DedupedResult",
+    "original":"~MatrixEngine|Buffer",
+    "duplicate":"~MatrixEngine|MatrixEngine/bufA:Buffer",
+    "index":0.3333333333333333
+  },
+  {
+    "class":"firrtl.transforms.DedupedResult",
+    "original":"~MatrixEngine|Buffer_1",
+    "duplicate":"~MatrixEngine|MatrixEngine/bufB:Buffer",
+    "index":0.6666666666666666
+  },
+  {
+    "class":"firrtl.EmitCircuitAnnotation",
+    "emitter":"firrtl.VerilogEmitter"
+  },
+  {
+    "class":"firrtl.transforms.BlackBoxTargetDirAnno",
+    "targetDir":"."
+  }
+]
