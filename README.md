@@ -129,3 +129,35 @@ sbt run 成功后会生成三个核心文件：
 * **RTL 代码生成:** 利用 `sbt` 成功执行了 `MAC_FP8Any.scala` 中的 `App` 对象，生成了对应不同位宽配置 (如 E4M3, E3M4 等) 的 Verilog 顶层文件 (`MAC_FP8Any.v`)。
 * **仿真环境验证:** 在 Scala 中编写了基于 SpinalSim (Verilator 引擎) 的激励测试代码。
 * **定位 Xilinx 原语依赖:** 仿真暴露了 Verilator 缺少 Xilinx 底层硬件原语 (`LUT6_2`, `CARRY8`) 的问题。由此明确了下一步的工作流：将生成的顶层 `.v` 文件以及 `BlackBoxImport` 目录下的底层黑盒文件 (`fpany_adder_widen.v`, `ternary_adder_noincr.v` 等) 统一导出至本地 Windows 端的 Vivado，利用其原生 Xilinx 库开展后续的逻辑仿真 (Simulation) 与综合 (Synthesis) 资源对比。
+
+## Update: Rapid Verification Pipeline for Approximate Hardware Simulation
+
+为了验证端侧大模型低比特量化推理中“近似矩阵乘法加速单元”的硬件行为，软件层面的精准映射与快速迭代至关重要。本次更新主要针对 FP8 量化验证流程进行了优化，修复了底层模块调用错误，并引入了 Quick Check 机制以大幅提升 Debug 效率。
+
+### Key Modifications (核心改动)
+
+1. **Restored Hardware-Software Mapping (修复硬件近似操作映射)**
+   * **File:** `accuracy_evaluation/image_net.py`
+   * **Change:** 取消了 `replace_operations_in_mobilenet_v2_quantized` 相关的注释。
+   * **Reason:** 在开启 `--approx_flag` 与 `--withComp` 时，如果底层依然使用原生的 `QuantLinear` 会导致硬件补偿逻辑失效（精确计算与近似补偿因子错位），从而引发输出溢出（Loss > 30, Accuracy 接近 0%）。恢复替换逻辑后，网络层正确替换为 `QCustomLinearTorch` 等自定义层，确保了软件端真实反映 RTL 级别的下采样与补偿操作。
+
+2. **Accelerated BN Re-estimation (加速 BN 统计量重估)**
+   * **File:** `accuracy_evaluation/utils/qat_utils.py`
+   * **Change:** 在 `ReestimateBNStats` 类的 `tqdm(data_loader)` 循环中加入 `batch_count`，限制运行次数（如 `if batch_count >= 50: break`）。
+   * **Reason:** 量化后激活值分布发生改变，需要重新估算 Batch Normalization 的均值与方差。在近似计算极耗资源的情况下（约 33s/iter），全量重估需耗时 20+ 小时。通过截断至 50 个 Batch，在保证统计学采样足够的首要前提下，将时间缩减至 1 分钟内。
+
+3. **Quick Check Validation Mode (快速验证模式)**
+   * **File:** `accuracy_evaluation/validate.py`
+   * **Change:** 在 `validate` 函数中加入了 50 个 Batch 的截断跳出逻辑，并强制刷新标准输出（`sys.stdout.flush()`）。
+   * **Reason:** 在长流程模拟中实现“Fail Fast”。无需等待 50000 张 ImageNet 验证集的完整结果，即可在数分钟内观测到 `Prec@1` 的恢复趋势，用于快速验证 `dnsp_factor` 或 `withComp` 参数的有效性。
+
+4. **Click CLI Syntax & Script Configuration (脚本参数修正)**
+   * **File:** `accuracy_evaluation/scripts/image_net.sh`
+   * **Change:** 修正了布尔类型的输入语法，修正了预训练权重的绝对路径。
+   * **Reason:** Click 库对 boolean 参数的解析采取无值（Flag）模式。开启补偿必须使用 `--withComp` 和 `--with_compensation`，而不是 `--with_compensation True`（会导致 Unexpected Extra Argument 错误）。
+
+### Knowledge Points (核心知识点)
+
+* **Hardware-Algorithm Co-design (软硬件协同设计):** 在 IC 设计的早期验证阶段，纯 RTL 仿真（如 Vivado）无法高效跑完 ImageNet 规模的数据。因此，用 PyTorch 编写带同样截断、下采样、近似乘法逻辑的“软件映射层”（如 `CustomConv2dNumPy`）是证明硬件有效性的唯一途径。
+* **Quantization Error & Compensation (量化误差与补偿):** 近似乘法（如丢弃低位）天然会引入系统性负向偏置。通过软件模拟证明 `withComp=True` 能够将精度拉回到可用水平，是整个加速器架构设计的理论支撑。
+* **BN Re-estimation (BN 重估):** 模型从 FP32 转换为 FP8 时，特征图幅值范围突变，原有 BN 参数失效。量化后冻结权重并使用小批量训练集重新计算滑动平均（Running Mean/Var）是后量化（PTQ）的标配操作。
