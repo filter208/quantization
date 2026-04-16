@@ -106,3 +106,26 @@ sbt run 成功后会生成三个核心文件：
 
 ### 4. 项目管理附言
 * **数据隐私隔离**：鉴于本项目涉及大模型加速单元的底层 RTL 设计，为防止 GitHub Copilot 将课题核心逻辑用于其后台大模型训练，已在 GitHub 账户设置中主动 Opt-out 了代码片段分享（"Allow GitHub to use my code snippets for product improvements"），保障了毕业设计的知识产权安全。
+
+## 复现工作阶段性总结 (2026-04-14)
+**目标:** 复现 April 论文中基于 FP8 近似计算的 PTQ (Post-Training Quantization) 软件评估链路，以及底层硬件乘累加 (MAC) 单元的 RTL 生成与验证。
+
+
+### 1. ImageNet 数据集离线重构
+在无法使用 `wget` 或 `torchvision` 自动下载/验证的情况下，通过纯离线脚本完成了 ImageNet 验证集的标准工程化重构：
+* **映射关系解析:** 利用正则表达式提取了 51,000 行备用脚本中的 `mv` 移动指令，成功解析出图片与 WNID (如 `n02268443`) 的映射关系。
+* **物理目录重构:** 编写自定义 Python 脚本，将 50,000 张散乱的 `.JPEG` 验证集图片精准分类至对应的 WNID 文件夹中。
+* **适配源码逻辑:** 严格按照 ImageNet 官方字母顺序，将 WNID 文件夹批量重命名为 `0` 至 `999` 的数字目录，完美适配了 April 源码中 `ImageFolder` 的 `int(x)` 类别加载逻辑。
+
+### 2. 软件端：FP8 PTQ 评估链路打通
+对作者的原始自动化管线进行了深度排错与改造，成功点火启动了评估脚本：
+* **路径与管线接管:** 将 `generated_scripts.py` 等批量执行脚本中硬编码的作者绝对路径 (`/home/zou/...`) 全部替换为服务器实际环境的绝对路径，跑通了脚本生成逻辑。
+* **底层类属性冲突修复:** 追踪并排除了 `QCustomBNConv2dTorch` 层在折叠 BN (Fold BN) 时引发的 `AttributeError`，通过在启动脚本模板中剥离 `--with_flexbias` 参数，解决了历史版本遗留的参数传递冲突。
+* **无训练集 (Train Set) 校准绕过:** 针对 PTQ 校准阶段缺少完整 Train 目录导致的 `FileNotFoundError`，修改了 `image_net.py` (第 84 行及 150 行)，将用于统计重估计 (BN Re-estimation 和 Range Estimation) 的 `train_loader` 强制定向为 `val_loader`，利用验证集的前 1% 数据成功完成了 FP8 指数偏移 (Bias) 的校准。
+* **运行状态:** 目前后台评估程序已在 `tmux` 虚拟终端中稳定运行，成功进入 `Reestimate current BN statistics` 迭代循环。
+
+### 3. 硬件端：SpinalHDL 编译与迁移准备
+完成了底层近似硬件逻辑的代码生成与仿真环境摸底：
+* **RTL 代码生成:** 利用 `sbt` 成功执行了 `MAC_FP8Any.scala` 中的 `App` 对象，生成了对应不同位宽配置 (如 E4M3, E3M4 等) 的 Verilog 顶层文件 (`MAC_FP8Any.v`)。
+* **仿真环境验证:** 在 Scala 中编写了基于 SpinalSim (Verilator 引擎) 的激励测试代码。
+* **定位 Xilinx 原语依赖:** 仿真暴露了 Verilator 缺少 Xilinx 底层硬件原语 (`LUT6_2`, `CARRY8`) 的问题。由此明确了下一步的工作流：将生成的顶层 `.v` 文件以及 `BlackBoxImport` 目录下的底层黑盒文件 (`fpany_adder_widen.v`, `ternary_adder_noincr.v` 等) 统一导出至本地 Windows 端的 Vivado，利用其原生 Xilinx 库开展后续的逻辑仿真 (Simulation) 与综合 (Synthesis) 资源对比。
