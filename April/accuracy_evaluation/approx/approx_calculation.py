@@ -50,7 +50,13 @@ CustomConv2dTorch with Quantization
 #         return self.approx_params
 
 
-class QCustomConv2dTorch(QuantizationHijacker, nn.Conv2d):
+class QCustomConv2dTorch(QuantConv):
+   # 继承从 (QuantizationHijacker, nn.Conv2d) 改为纯正的 QuantConv
+    def __init__(self, *args, **kwargs):
+        # 拦截并保存所有的硬件近似参数
+        self.custom_approx_params = kwargs.copy()
+        super().__init__(*args, **kwargs)
+
     def im2col(self, input_data, kernel_height, kernel_width, stride, padding, dilation):
         batch_size, channels, height, width = input_data.shape
         
@@ -275,7 +281,12 @@ class QCustomConv2dTorch(QuantizationHijacker, nn.Conv2d):
 
 
 
-class QCustomBNConv2dTorch(BNFusedHijacker, nn.Conv2d):    
+class QCustomBNConv2dTorch(BNQConv):    
+    # 继承从 (BNFusedHijacker, nn.Conv2d) 改为 BNQConv
+    def __init__(self, *args, **kwargs):
+        self.custom_approx_params = kwargs.copy()
+        super().__init__(*args, **kwargs)
+
     def im2col(self, input_data, kernel_height, kernel_width, stride, padding, dilation):
         batch_size, channels, height, width = input_data.shape
         
@@ -526,7 +537,12 @@ class QCustomBNConv2dTorch(BNFusedHijacker, nn.Conv2d):
         return output
     
     
-class QCustomLinearTorch(QuantizationHijacker, nn.Linear):      
+# 继承从 (QuantizationHijacker, nn.Linear) 改为 QuantLinear
+class QCustomLinearTorch(QuantLinear):      
+    def __init__(self, *args, **kwargs):
+        self.custom_approx_params = kwargs.copy()
+        super().__init__(*args, **kwargs)
+        
     def approx_multiply(self, x, y, x_bias, y_bias, res_bias):
         # self.approx_params = self.get_approx_params()
         # print(f"self.approx_params {self.approx_params}")

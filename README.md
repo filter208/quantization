@@ -161,3 +161,61 @@ sbt run 成功后会生成三个核心文件：
 * **Hardware-Algorithm Co-design (软硬件协同设计):** 在 IC 设计的早期验证阶段，纯 RTL 仿真（如 Vivado）无法高效跑完 ImageNet 规模的数据。因此，用 PyTorch 编写带同样截断、下采样、近似乘法逻辑的“软件映射层”（如 `CustomConv2dNumPy`）是证明硬件有效性的唯一途径。
 * **Quantization Error & Compensation (量化误差与补偿):** 近似乘法（如丢弃低位）天然会引入系统性负向偏置。通过软件模拟证明 `withComp=True` 能够将精度拉回到可用水平，是整个加速器架构设计的理论支撑。
 * **BN Re-estimation (BN 重估):** 模型从 FP32 转换为 FP8 时，特征图幅值范围突变，原有 BN 参数失效。量化后冻结权重并使用小批量训练集重新计算滑动平均（Running Mean/Var）是后量化（PTQ）的标配操作。
+
+# Debugging Log: 近似矩阵乘法加速单元软硬件协同仿真排雷记录
+
+## 项目背景
+本项目旨在为边缘侧大模型低比特量化推理设计近似矩阵乘法加速单元。在前期已通过 SpinalHDL/Scala 成功完成硬件 MAC 单元设计与仿真验证的基础上，本阶段目标是将自研的 `QCustomLinearTorch`（近似计算与硬件补偿逻辑）接入 April 验证框架，在 MobileNetV2 模型上进行 FP8 E3M4 的端到端准确率评估与软硬件协同仿真。
+
+在联合调试过程中，遇到了一系列由框架底层接口冲突、PyTorch 机制滥用以及数据集标签映射错位导致的严重 Bug。特此记录完整的排查路径与修复方案。
+
+---
+
+## Phase 1: 软件框架层面的 Bug 修复
+
+### 1. 初始化穿透引发的 `AttributeError` / `NoneType` 报错
+* **现象描述：** 运行主入口脚本 `image_net.sh` 时，系统抛出 `AttributeError: cannot assign buffer before Module.__init__() call`。
+* **原因分析：** 原代码在初始化自定义量化层时，未能安全处理空参数字典。为了规避 `TypeError` 临时加入的 `if` 判断导致 Python 缩进错误，使得 PyTorch 最核心的 `super().__init__(*args, **kwargs)` 被包裹在了条件语句内，未能被执行，导致底层 `_buffers` 容器未创建。
+* **修复方案：** 重写 `base_quantized_classes.py` 中的 `__init__` 函数。摒弃容易引起逻辑断层的 `if` 块，采用 `.get()` 和 `or {}` 来安全提取 `custom_approx_params`，并将 `super().__init__` 置于最外层，确保基础计算图成功构建。
+
+### 2. PyTorch `apply` 机制滥用导致的无限递归死循环
+* **现象描述：** 初始化通过后，程序陷入死循环，最终抛出 `RecursionError: maximum recursion depth exceeded`。
+* **原因分析：** 1. `model.approx_calculation()` 内部错误使用了 PyTorch 的 `self.apply(fn)`。`apply` 会递归遍历所有子模块，而原作者在每一层触发时又调用了自身的 `approx_calculation`，导致指数级遍历爆炸。
+  2. 底层包装器（Hijacker）重写了 `__getattr__`，在寻找 `approx_flag` 状态时发生拦截器死锁。
+* **修复方案：**
+  废弃原有的 `apply` 遍历模式。重写 `approx_calculation(self)`，改用 `self.children()` 单层展开；同时使用 Python 底层的 `__dict__` 直接读写 `approx_flag` 状态（如 `self.__dict__['approx_flag'] = True`），成功绕过 `__getattr__` 魔术方法的死锁。
+
+---
+
+## Phase 2: “纯净基线”测试与 0% 精度排查
+
+在解决所有代码死循环后，计算图成功切入底层 RTL 硬件模拟逻辑（耗时激增至约 800s/batch），但 `Prec@1` 精度仅为 `0.092%`（等同于随机猜测）。为了界定是硬件补偿逻辑（位截断/下采样溢出）的问题，还是基础代码的问题，进行了“纯净基线”控制变量测试。
+
+### 1. 硬件总闸未关闭的干扰
+* **现象：** 在 `.sh` 脚本中关闭所有近似与补偿参数（`--no-with_approx`），运行时间与精度依然毫无变化。
+* **原因：** `image_net.py` 主程序中硬编码了 `model.approx_calculation()`。
+* **动作：** 注释掉总闸后，模型切回纯 GPU 高速运行状态（15 it/s），但 `Prec@1` 依然为 `0.000% ~ 0.031%`。
+* **结论：** 硬件近似代码完全无辜！问题出在更早期的预处理、环境配置或数据集流向上。
+
+### 2. 探针植入与数据集“史诗级”错位灾难的发现
+* **排查手段：** 在 `validate.py` 的前向传播部分植入极简探针，强制比对 `Target` (标签) 与 `Predict` (模型预测 Top-5)。
+* **探针结果：**
+  * `Target` 给出的是 `0`（代表 ImageNet 的丁鱼）。
+  * 模型高置信度预测出了桔子 (950)、双簧管 (846)、暖风机 (811) 等完全不相关的物品。
+* **根本原因（Root Cause）：**
+  1. **物理存放错乱：** ImageNet 的 `val` 数据集原始的 50000 张图片是无序的。前期处理时，简单粗暴地将无序图片按数量切分进了 `000` ~ `999` 的文件夹，导致同一个类别文件夹内物理混合了各种完全不相关的图片。
+  2. **字符串字典序陷阱：** PyTorch `ImageFolder` 默认按照文件夹名称的字母字典序分配标签（0, 1, 10, 100...），这与作者提供的 BN-folded 魔改权重内置的官方 WordNet ID（n0xxxx）顺序发生了严重偏离。
+  3. **作者代码的强校验：** `imagenet_dataloaders.py` 中写死了强校验规则（如 `class_name.isdigit()`），拒绝接受官方正确的 `n0...` 分类文件夹。
+
+---
+
+## Phase 3: 最终的应对策略与后续计划
+
+当前的 0% 精度纯粹由测试数据集的标签物理错乱所致。工程体系已完全跑通，下一步需执行以下“数据集重构三步走”来彻底恢复测试环境：
+
+1. **扁平化撤销：** 执行 `mv */*.JPEG .` 将所有图片抽回 `val/` 根目录，并删除所有错误的数字文件夹。
+2. **官方归位：** 运行官方分拣脚本 `./valprep.sh`，将 50000 张验证集图片精准移动到对应的 `n01440764` 等官方文件夹中。
+3. **爆改作者校验：** 修改 `accuracy_evaluation/utils/imagenet_dataloaders.py`，删除（或注释掉）其中强制要求文件夹名称为纯数字的 `if not class_name.isdigit(): raise ValueError(...)` 校验代码。
+
+**Next Steps：**
+完成数据集恢复后，保持硬件模拟总闸关闭，验证模型能否恢复到 `60%~70%` 的正常量化精度基线。确立基线后，解封 `model.approx_calculation()`，正式获取近似 MAC 单元的真实硬件评估指标。

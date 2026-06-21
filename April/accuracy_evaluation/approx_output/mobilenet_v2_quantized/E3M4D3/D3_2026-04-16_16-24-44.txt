@@ -1,0 +1,4 @@
+evaluate_param: mini_test
+run_method: {'approx_flag': True, 'quantize_after_mult_and_add': False, 'res_quantizer_flag': True, 'original_quantize_res': False}
+approx_params: {'expo_width': 3, 'mant_width': 4, 'dnsmp_factor': 3, 'withComp': True, 'with_approx': True, 'with_s2nn2s_opt': True, 'sim_hw_add_OFUF': False, 'with_OF_opt': False, 'with_UF_opt': False, 'golden_clip_OF': False, 'quant_btw_mult_accu': False, 'debug_mode': False, 'self_check_mode': False, 'test_golden': False, 'test_golden_quant_btw_mult_accu': False, 'test_golden_quant_btw_mult_accu_use_flexbias': False, 'test_baseline': False, 'test_best_allnorm': False, 'test_best_s2nn2s': False, 'test_casestudy': True, 'with_compensation': True, 'with_view_all_as_norm': False, 'with_flexbias': False}
+loss: 33.24783355114507, top1k_acc: 0.030637254901960783, top5k_acc: 0.030637254901960783

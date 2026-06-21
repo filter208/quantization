@@ -17,6 +17,23 @@ def validate(val_loader, model, criterion, device):
 
     # switch to evaluate mode
     model.eval()
+    # ===== 新增：张量爆炸追踪 Hook =====
+    debug_hooks = []
+    def get_activation_hook(name):
+        def hook(model, input, output):
+            # 获取当前 Block 输出的最大绝对值，排查是否撞到了 31.0
+            max_val = output.abs().max().item()
+            mean_val = output.mean().item()
+            if max_val > 25.0:
+                print(f"[警告] {name} 输出即将溢出: Max={max_val:.4f}, Mean={mean_val:.4f}")
+        return hook
+
+    # 挂载到所有的残差块上
+    from models.mobilenet_v2_quantized_approx import QuantizedInvertedResidual
+    for name, layer in model.named_modules():
+        if type(layer).__name__ == 'QuantizedInvertedResidual':
+            h = layer.register_forward_hook(get_activation_hook(name))
+            debug_hooks.append(h)
 
     val_start_time = end = time.time()
     loop = tqdm(enumerate(val_loader), leave=True, total=len(val_loader))
@@ -27,10 +44,23 @@ def validate(val_loader, model, criterion, device):
 
         with torch.no_grad():
             output = model(data)
+            #植入探针
+            if i == 0:
+                print("\n" + "="*50)
+                print("【深度透视：前 15 张图片的标签 vs 预测】")
+                print("数据集给的答案 (Target) :", target[:15].cpu().numpy().tolist())
+                _, preds = output.topk(1, 1, True, True)
+                print("模型给出的预测 (Predict) :", preds[:15].squeeze().cpu().numpy().tolist())
+                print("="*50 + "\n")
+                #结束
             # data_cpu = data.cpu()
             # imshow(data_cpu)
             
         loss = criterion(output, target)
+        print(f"\n--- Debug: 观测网络输出 ---")
+        print(f"当前 Batch 的 Loss 值: {loss.item()}")
+        print(f"第一个样本的前 10 个神经元输出(Logits): \n{output[0][:10]}")
+        exit(0) # 测完第一个 Batch 直接终止程序，方便看日志
 
         # measure accuracy and record loss
         prec1, prec5 = accuracy(output.data, target, topk=(1, 5))

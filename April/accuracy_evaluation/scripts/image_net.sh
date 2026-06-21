@@ -7,6 +7,7 @@ image_dir="/data2/model_zoo/ImageNet"
 model_dir="/home/sxy/code/quantization/April/accuracy_evaluation/model_dir/mobilenet_v2.pth.tar"
 
 architecture="mobilenet_v2_quantized"
+
 # architecture="resnet18_quantized_approx"
 # architecture="deit_quantized_approx"
 # architecture="fastvit_t8_quantized_approx"
@@ -31,16 +32,16 @@ CUDA_VISIBLE_DEVICES=$device python image_net.py validate-quantized \
     --n-bits ${n_bits}  \
     --cuda \
     --load-type fp32 \
-    --quant-setup all \
+    --num-workers 0 \
     --qmethod fp_quantizer \
     --per-channel \
     --fp8-mantissa-bits=$mant_width \
     --fp8-set-maxval \
     --no-fp8-mse-include-mantissa-bits \
-    --weight-quant-method=current_minmax \
-    --act-quant-method=allminmax \
+    --weight-quant  \
+    --act-quant  \
     --num-est-batches=1 \
-    --quantize-input \
+    --no-quantize-input \
     --approx_flag \
     --no-quantize-after-mult-and-add \
     --res-quantizer-flag \
@@ -50,7 +51,7 @@ CUDA_VISIBLE_DEVICES=$device python image_net.py validate-quantized \
     --dnsmp-factor ${dnsmp_factor} \
     --withComp \
     --with_approx \
-    --with_s2nn2s_opt \
+    --no-with_s2nn2s_opt \
     --no-sim_hw_add_OFUF \
     --no-with_OF_opt \
     --no-with_UF_opt \
@@ -59,8 +60,9 @@ CUDA_VISIBLE_DEVICES=$device python image_net.py validate-quantized \
     --no-debug-mode \
     --no-self-check-mode \
     --approx-output-dir ${approx_output_dir} \
-    --test_casestudy \
-    --with_compensation \
+    --no-test_casestudy \
+    --no-with_compensation \
+    --reestimate-bn-stats \
     #--no-with_flexbias 
 
 # # v11

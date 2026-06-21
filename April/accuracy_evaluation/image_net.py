@@ -72,11 +72,11 @@ def validate_quantized(config, load_type):
     qparams["run_method"] = run_method
     dataloaders, model = get_dataloaders_and_model(config=config, load_type=load_type, **qparams)
     
-    # from approx.replace_operations_in_mobilenet_v2 import replace_operations_in_mobilenet_v2_quantized
-    # replace_operations_in_mobilenet_v2_quantized(model, **qparams)
-    # if config.base.cuda:
-    #     model = model.cuda()
-    # print("replace done")
+    from approx.replace_operations_in_mobilenet_v2 import replace_operations_in_mobilenet_v2_quantized
+    replace_operations_in_mobilenet_v2_quantized(model, **qparams)
+    if config.base.cuda:
+        model = model.cuda()
+    print("replace done")
     model.estimate_ranges()
     if load_type == "fp32":
         # Estimate ranges using training data
@@ -93,7 +93,7 @@ def validate_quantized(config, load_type):
 
     # Fix ranges
     model.fix_ranges()
-    # model.approx_calculation()
+    #model.approx_calculation()
     # '''
     # test
     # '''
@@ -175,7 +175,7 @@ def validate_quantized(config, load_type):
     if config.approx.approx_output_dir is not None:
         import datetime
         output_dir = config.approx.approx_output_dir
-        arch = str(config.base.architecture)
+        arch = str(getattr(config.base, 'architecture', 'mobilenet_v2'))
         output_dir = os.path.join(output_dir, arch)
         os.makedirs(output_dir, exist_ok=True)
         expo_width = approx_params["expo_width"]

@@ -41,10 +41,12 @@ def _set_layer_estimate_ranges_train(layer):
             layer.estimate_ranges_train()
             
 def _set_layer_approx_calculation(layer):
-    if isinstance(layer, QuantizedModule):
-        if layer.approx_flag is not None:
+    # 【安全锁】检查类型而不是实例，防止 __getattr__ 拦截死锁
+    if hasattr(type(layer), 'approx_calculation'):
+        # 检查底层字典，如果没有开启，就帮它开启
+        if not layer.__dict__.get('approx_flag', False):
+            layer.__dict__['approx_flag'] = True
             layer.approx_calculation()
-
 
 class QuantizedModule(nn.Module):
     """
@@ -92,6 +94,8 @@ class QuantizedModule(nn.Module):
         elif self.custom_approx_params['test_casestudy']:
             self.flex_bias = self.custom_approx_params['with_flexbias']
             
+        # --- 【关键修复】在此处拦截并丢弃 PyTorch 不认识的 quant_setup ---
+        kwargs.pop("quant_setup", None)
         super().__init__(*args, **kwargs)
 
         self.method = method
@@ -192,8 +196,9 @@ class QuantizedModule(nn.Module):
         return "{},\n{}".format(parent_repr, quant_state) if parent_repr else quant_state
     
     def approx_calculation(self):
-        self.approx_flag = True
-        self.apply(_set_layer_approx_calculation)
+        
+        self.__dict__['approx_flag'] = True
+        self.approx_flag = True 
 
 
 class QuantizedActivation(QuantizedModule):

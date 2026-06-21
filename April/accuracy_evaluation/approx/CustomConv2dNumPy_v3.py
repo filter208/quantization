@@ -321,8 +321,8 @@ class QCustomConv2dNumPy_approx(QCustomConv2dNumPy):
         self.use_bias = bias is not None
     
     def multiply(self, x, y):
-        expo_width = 2
-        mant_width = 5
+        expo_width = 3
+        mant_width = 4
         withComp = True
         
         comp_table_NN = get_comp_table_NN(expo_width, mant_width, withComp)
